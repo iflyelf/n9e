@@ -10,7 +10,16 @@ import sys
 import re
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TARGET_FILE = os.path.join(SCRIPT_DIR, "upstream/alert/dispatch/dispatch.go")
+
+# 支持通过命令行参数或环境变量指定目标文件路径
+if len(sys.argv) > 1:
+    TARGET_FILE = sys.argv[1]
+elif os.environ.get('TARGET_FILE'):
+    TARGET_FILE = os.environ.get('TARGET_FILE')
+else:
+    # 默认路径（相对于脚本目录）
+    TARGET_FILE = os.path.join(SCRIPT_DIR, "upstream/alert/dispatch/dispatch.go")
+
 BACKUP_FILE = TARGET_FILE + ".bak"
 
 # 聚合结构体定义

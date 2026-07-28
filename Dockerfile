@@ -238,7 +238,7 @@ COPY apply-aggregation-patch.py /build/
 
 RUN set -eux && \
     cd /build && \
-    python3 apply-aggregation-patch.py && \
+    python3 apply-aggregation-patch.py /build/nightingale/alert/dispatch/dispatch.go && \
     echo "✅ 事件聚合补丁应用完成"
 
 # ***** 编译 Nightingale *****
