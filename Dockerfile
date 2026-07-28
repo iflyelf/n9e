@@ -245,6 +245,9 @@ RUN set -eux && \
 RUN set -eux && \
     cd /build/nightingale && \
     go mod download && \
+    # 下载前端静态文件 (n9e/fe release), fe.sh 会自动获取最新版前端并解压到 ./pub
+    chmod +x fe.sh && \
+    ./fe.sh || echo "⚠️  fe.sh 执行异常, 继续构建" && \
     make build && \
     make build-pushgw && \
     ls -lh n9e* && \
@@ -253,7 +256,8 @@ RUN set -eux && \
     cp n9e /opt/nightingale/ && \
     cp n9e-pushgw /opt/nightingale/ && \
     cp -r etc/* /opt/nightingale/etc/ && \
-    cp -r pub /opt/nightingale/pub && \
+    # pub 前端目录存在才复制 (最新版可能使用 embed 方式内嵌)
+    if [ -d pub ]; then cp -r pub /opt/nightingale/pub; fi && \
     # 清理源码和 Go 缓存, 减小镜像体积
     rm -rf /build /opt/golang/pkg /root/.cache && \
     echo "✅ Nightingale 编译安装完成"
