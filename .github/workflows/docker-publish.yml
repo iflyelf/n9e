@@ -1,0 +1,165 @@
+#=================================================
+# https://github.com/iflyelf/nightingale-docker
+# License: MIT
+# Author: iflyelf
+# Description: 自动构建 Nightingale 事件聚合版镜像
+#=================================================
+
+name: 构建并推送 Nightingale 镜像
+
+on:
+  push:
+    paths:
+      - 'Dockerfile'
+      - 'apply-aggregation-patch.py'
+      - '.github/workflows/docker-publish.yml'
+  workflow_dispatch:
+    inputs:
+      build_desc:
+        description: '构建说明'
+        required: false
+        default: 'Manual build'
+  schedule:
+    # 每周一 UTC 02:00 (北京时间 10:00) 自动构建
+    - cron: '0 2 * * 1'
+  watch:
+    types: [started]
+
+permissions:
+  actions: write
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: github.event.repository.owner.id == github.event.sender.id
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: latest
+            description: "最新稳定版（事件聚合）"
+
+    steps:
+      - name: 🔍 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive  # 自动拉取子模块
+
+      - name: 🔄 更新子模块到最新版本
+        run: |
+          echo "📦 更新上游 nightingale 子模块..."
+          git submodule update --remote --merge
+          
+          cd upstream
+          LATEST_COMMIT=$(git rev-parse HEAD)
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+          
+          echo "📌 上游最新 commit: $LATEST_COMMIT"
+          echo "🏷️  上游最新 tag: $LATEST_TAG"
+          echo "UPSTREAM_COMMIT=$LATEST_COMMIT" >> $GITHUB_ENV
+          echo "UPSTREAM_TAG=$LATEST_TAG" >> $GITHUB_ENV
+
+      - name: 🔧 测试补丁脚本
+        run: |
+          echo "🧪 测试事件聚合补丁..."
+          python3 apply-aggregation-patch.py
+          
+          if grep -q "AggregationKey" upstream/alert/dispatch/dispatch.go; then
+            echo "✅ 补丁测试成功"
+          else
+            echo "❌ 补丁测试失败"
+            exit 1
+          fi
+          
+          # 恢复子模块以便 Docker 构建时重新应用
+          cd upstream && git checkout alert/dispatch/dispatch.go
+
+      - name: 📝 生成镜像标签
+        id: meta
+        run: |
+          VERSION="${UPSTREAM_TAG#v}"
+          if [ "$VERSION" = "unknown" ]; then
+            VERSION=$(date +%Y%m%d)
+          fi
+          
+          TAGS=""
+          TAGS="$TAGS,${{ secrets.DOCKER_USERNAME }}/nightingale:${{ matrix.tag }}"
+          TAGS="$TAGS,${{ secrets.DOCKER_USERNAME }}/nightingale:${VERSION}-aggregation"
+          TAGS="$TAGS,${{ secrets.DOCKER_USERNAME }}/nightingale:latest-aggregation"
+          
+          echo "tags=${TAGS#,}" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: 🛠️ 安装 QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: 🛠️ 安装 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: 🔐 登录 DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: 🚀 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=Nightingale (Event Aggregation)
+            org.opencontainers.image.description=Nightingale 监控系统 - 事件聚合版
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.upstream=${{ env.UPSTREAM_COMMIT }}
+
+      - name: 📊 生成构建报告
+        if: always()
+        run: |
+          echo "## 🐳 镜像构建报告" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 项目 | 信息 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 上游版本 | ${{ env.UPSTREAM_TAG }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 上游 Commit | ${{ env.UPSTREAM_COMMIT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 镜像标签 | \`${{ steps.meta.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 平台 | linux/amd64, linux/arm64 |" >> $GITHUB_STEP_SUMMARY
+          echo "| 功能特性 | ✅ 事件聚合（60秒窗口） |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 使用方式" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ secrets.DOCKER_USERNAME }}/nightingale:latest-aggregation" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d --name n9e \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -p 17000:17000 -p 18000:18000 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  ${{ secrets.DOCKER_USERNAME }}/nightingale:latest-aggregation" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  cleanup:
+    name: 清理旧 workflow
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: 删除旧的 workflow 运行记录
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          repository: ${{ github.repository }}
+          retain_days: 7
+          keep_minimum_runs: 3

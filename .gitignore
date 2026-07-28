@@ -1,0 +1,12 @@
+*.log
+*.bak
+*.swp
+*.tmp
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+build/
