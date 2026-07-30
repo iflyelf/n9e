@@ -44,6 +44,9 @@ ENV GOPATH=$GOPATH
 # Go 模块代理(加速依赖下载, 国内构建必备; 海外可改为 https://proxy.golang.org,direct)
 ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=$GOPROXY
+# 静态链接编译(禁用 CGO, 生成纯静态二进制, 支持交叉编译)
+ARG CGO_ENABLED=0
+ENV CGO_ENABLED=$CGO_ENABLED
 
 ARG PKG_DEPS="\
     zsh \

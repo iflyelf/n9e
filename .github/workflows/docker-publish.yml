@@ -19,6 +19,9 @@ on:
         description: '构建说明'
         required: false
         default: 'Manual build'
+  # 由 submodules-sync.yml 在子模块 tag 更新后触发
+  repository_dispatch:
+    types: [submodule-updated]
   schedule:
     # 每周一 UTC 02:00 (北京时间 10:00) 自动构建
     - cron: '0 2 * * 1'
@@ -49,17 +52,19 @@ jobs:
           fetch-depth: 0
           submodules: recursive  # 自动拉取子模块
 
-      - name: 🔄 更新子模块到最新版本
+      - name: 🔄 读取子模块锁定版本
         run: |
-          echo "📦 更新上游 nightingale 子模块..."
-          git submodule update --remote --merge
-          
+          echo "📦 读取上游 nightingale 子模块锁定的 tag..."
+          # 子模块版本由 submodules-sync.yml 对齐到具体 tag, 这里只读取, 不再 --remote 拉取最新
+          git submodule update --init upstream
+
           cd upstream
           LATEST_COMMIT=$(git rev-parse HEAD)
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
-          
-          echo "📌 上游最新 commit: $LATEST_COMMIT"
-          echo "🏷️  上游最新 tag: $LATEST_TAG"
+          # 优先取精确匹配的 tag, 保证与 submodules-sync 对齐的版本一致
+          LATEST_TAG=$(git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+
+          echo "📌 上游锁定 commit: $LATEST_COMMIT"
+          echo "🏷️  上游锁定 tag: $LATEST_TAG"
           echo "UPSTREAM_COMMIT=$LATEST_COMMIT" >> $GITHUB_ENV
           echo "UPSTREAM_TAG=$LATEST_TAG" >> $GITHUB_ENV
 

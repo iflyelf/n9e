@@ -104,9 +104,10 @@ http://localhost:19000
 nightingale-docker/
 ├── upstream/                          # Git 子模块（ccfos/nightingale）
 ├── apply-aggregation-patch.py         # Python 补丁脚本
-├── Dockerfile                         # 多阶段构建
+├── Dockerfile                         # 多阶段构建（CGO_ENABLED=0 静态链接）
 ├── docker-entrypoint.sh               # 容器启动脚本
 ├── .github/workflows/
+│   ├── submodules-sync.yml            # 子模块 tag 对齐同步
 │   └── docker-publish.yml             # 自动构建工作流
 └── README.md
 ```
@@ -118,15 +119,24 @@ nightingale-docker/
 git clone --recurse-submodules https://github.com/iflyelf/nightingale-docker.git
 cd nightingale-docker
 
-# 更新子模块到最新版本
-git submodule update --remote --merge
+# 查看子模块当前锁定的版本
+cd upstream && git describe --tags --exact-match
 
-# 构建镜像
+# 构建镜像（自动静态链接编译）
 docker build -t nightingale:local .
 
 # 运行测试
 docker run --rm nightingale:local n9e --version
 ```
+
+### 编译特性
+
+本项目使用 **CGO_ENABLED=0** 进行纯静态链接编译：
+
+- ✅ 生成完全静态的二进制文件，无外部动态库依赖
+- ✅ 支持 linux/amd64、linux/arm64 交叉编译
+- ✅ 镜像可在任意 Linux 发行版运行，无 glibc 版本限制
+- ✅ 更小的二进制体积，更快的启动速度
 
 ---
 
@@ -155,7 +165,8 @@ docker run --rm nightingale:local n9e --version
 
 ```bash
 cd upstream
-git checkout main
+# 检出到指定 tag（保持版本对齐）
+git checkout v8.2.0
 cd ..
 python3 apply-aggregation-patch.py
 
@@ -196,12 +207,37 @@ grep -n "AggregationKey\|AddToAggregation" upstream/alert/dispatch/dispatch.go
 
 ### GitHub Action 工作流
 
-`.github/workflows/docker-publish.yml` 实现以下功能：
+本项目采用**两段式**工作流，确保子模块始终对齐到上游的稳定 **tag**（而非漂移的 `main` 分支 HEAD）：
 
-1. **定时触发**：每周一 UTC 02:00（北京时间 10:00）
-2. **更新子模块**：自动拉取上游最新代码
+#### 1️⃣ 子模块同步 `submodules-sync.yml`
+
+参考 [node_exporter 的同步方案](https://github.com/danxiaonuo/node_exporter/blob/main/.github/workflows/submodules-sync.yml) 实现：
+
+1. **定时触发**：每 6 小时检查一次上游新版本
+2. **获取最新 tag**：`git tag --sort=-version:refname` 取最新语义化版本
+3. **版本对比**：仅当上游 tag 高于当前锁定 tag 时才更新
+4. **checkout 到 tag**：`git checkout <tag>` 精确对齐版本（而非 `--remote --merge` 拉取漂移的 HEAD）
+5. **提交并触发构建**：提交子模块指针变更，通过 `repository_dispatch` 触发镜像构建
+
+> 💡 **为什么不用 `git submodule update --remote --merge`？**
+> 该命令会把子模块拉到上游默认分支的最新 commit，可能落在两个 tag 之间的开发中间态，导致构建的镜像版本无法与官方 release tag 对齐。改用 `git checkout <tag>` 后，子模块指针始终落在明确的发布版本上。
+
+> ⚠️ **需要配置 `CI_TOKEN` Secret**（一个具有 `repo` + `workflow` 权限的 PAT）：
+> 1. 分支保护可能拒绝默认 `GITHUB_TOKEN` 推送提交；
+> 2. 使用默认 `GITHUB_TOKEN` 发出的 `repository_dispatch` 事件**不会**触发下游 `docker-publish.yml`（GitHub 的防循环机制）。
+>
+> **Classic PAT** 权限：`repo`（含 public_repo）+ `workflow`
+>
+> **Fine-grained PAT** 权限：`Contents: Read & Write` + `Actions: Read & Write`
+>
+> 生成后在仓库 `Settings → Secrets and variables → Actions → New repository secret` 中添加，名称为 `CI_TOKEN`。
+
+#### 2️⃣ 镜像构建 `docker-publish.yml`
+
+1. **触发方式**：子模块同步完成后自动触发 / 每周一定时兜底 / 手动触发
+2. **读取锁定 tag**：`git describe --tags --exact-match` 读取对齐的版本
 3. **应用补丁**：自动执行 Python 补丁脚本
-4. **多架构构建**：linux/amd64、linux/arm64
+4. **多架构构建**：linux/amd64、linux/arm64（CGO_ENABLED=0 静态链接）
 5. **推送镜像**：自动推送到 Docker Hub
 
 ### 手动触发
