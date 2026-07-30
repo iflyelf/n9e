@@ -33,6 +33,10 @@ case "$1" in
         echo "🔧 启动 n9e (核心服务 + 事件聚合)"
         exec /opt/nightingale/n9e
         ;;
+    n9e-edge)
+        echo "🌐 启动 n9e-edge (边缘节点 + 推送网关 + 告警引擎)"
+        exec /opt/nightingale/n9e-edge
+        ;;
     n9e-pushgw)
         echo "📤 启动 n9e-pushgw (推送网关)"
         exec /opt/nightingale/n9e-pushgw
@@ -40,6 +44,7 @@ case "$1" in
     *)
         echo "📋 可用命令:"
         echo "  - n9e         (核心服务，含事件聚合)"
+        echo "  - n9e-edge    (边缘节点，含推送网关+告警引擎)"
         echo "  - n9e-pushgw  (推送网关)"
         echo ""
         exec "$@"

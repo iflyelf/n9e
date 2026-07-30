@@ -259,11 +259,13 @@ RUN set -eux && \
     # 直接调用 go build 传入版本号, 绕过 Makefile 中失败的 git describe
     RELEASE_VERSION="${UPSTREAM_TAG}" && \
     go build -ldflags "-w -s -X github.com/ccfos/nightingale/v6/pkg/version.Version=${RELEASE_VERSION}" -o n9e ./cmd/center/main.go && \
+    go build -ldflags "-w -s -X github.com/ccfos/nightingale/v6/pkg/version.Version=${RELEASE_VERSION}" -o n9e-edge ./cmd/edge/ && \
     go build -ldflags "-w -s -X github.com/ccfos/nightingale/v6/pkg/version.Version=${RELEASE_VERSION}" -o n9e-pushgw ./cmd/pushgw/main.go && \
     ls -lh n9e* && \
     # 安装到 /opt/nightingale
     mkdir -p /opt/nightingale/etc /opt/nightingale/logs /opt/nightingale/data && \
     cp n9e /opt/nightingale/ && \
+    cp n9e-edge /opt/nightingale/ && \
     cp n9e-pushgw /opt/nightingale/ && \
     cp -r etc/* /opt/nightingale/etc/ && \
     # pub 前端目录存在才复制 (最新版可能使用 embed 方式内嵌)

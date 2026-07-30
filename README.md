@@ -77,7 +77,7 @@ docker pull iflyelf/nightingale:latest-aggregation
 
 ### 2. 启动容器
 
-#### 基础运行
+#### 基础运行（中心节点）
 
 ```bash
 docker run -d --name n9e \
@@ -85,6 +85,18 @@ docker run -d --name n9e \
   -v /opt/n9e/etc:/opt/nightingale/etc \
   -v /opt/n9e/logs:/opt/nightingale/logs \
   iflyelf/nightingale:latest-aggregation
+```
+
+#### 启动边缘节点（n9e-edge）
+
+```bash
+docker run -d --name n9e-edge \
+  -p 19000:19000 \
+  -v /opt/n9e-edge/etc:/opt/nightingale/etc \
+  -v /opt/n9e-edge/logs:/opt/nightingale/logs \
+  -e WAIT_FOR="center-node:19000 redis:6379" \
+  iflyelf/nightingale:latest-aggregation \
+  n9e-edge
 ```
 
 #### 完整配置（docker-compose）
@@ -242,8 +254,16 @@ grep -n "AggregationKey\|AddToAggregation" upstream/alert/dispatch/dispatch.go
 
 | 端口 | 说明 |
 |------|------|
-| `19000` | Web UI + API |
+| `19000` | Web UI + API / n9e-edge 服务端口 |
 | `18000` | PushGateway (可选) |
+
+### 可用组件
+
+| 命令 | 说明 |
+|------|------|
+| `n9e` | 中心节点（核心服务，含事件聚合），默认命令 |
+| `n9e-edge` | 边缘节点（内置推送网关 + 告警引擎，依赖中心节点 CenterApi） |
+| `n9e-pushgw` | 独立推送网关 |
 
 ---
 
