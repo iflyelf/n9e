@@ -244,15 +244,22 @@ RUN set -eux && \
     python3 apply-aggregation-patch.py /build/nightingale/alert/dispatch/dispatch.go && \
     echo "✅ 事件聚合补丁应用完成"
 
+# 上游 tag, 由构建参数传入 (源码经 COPY 后无 .git, Makefile 的 git describe 会失败)
+ARG UPSTREAM_TAG=unknown
+
 # ***** 编译 Nightingale *****
 RUN set -eux && \
     cd /build/nightingale && \
     go mod download && \
+    # statik 用于将前端文件嵌入二进制 (fe.sh 依赖), 必须先安装到 GOPATH/bin
+    go install github.com/rakyll/statik@v0.1.7 && \
     # 下载前端静态文件 (n9e/fe release), fe.sh 会自动获取最新版前端并解压到 ./pub
     chmod +x fe.sh && \
-    ./fe.sh || echo "⚠️  fe.sh 执行异常, 继续构建" && \
-    make build && \
-    make build-pushgw && \
+    ./fe.sh && \
+    # 直接调用 go build 传入版本号, 绕过 Makefile 中失败的 git describe
+    RELEASE_VERSION="${UPSTREAM_TAG}" && \
+    go build -ldflags "-w -s -X github.com/ccfos/nightingale/v6/pkg/version.Version=${RELEASE_VERSION}" -o n9e ./cmd/center/main.go && \
+    go build -ldflags "-w -s -X github.com/ccfos/nightingale/v6/pkg/version.Version=${RELEASE_VERSION}" -o n9e-pushgw ./cmd/pushgw/main.go && \
     ls -lh n9e* && \
     # 安装到 /opt/nightingale
     mkdir -p /opt/nightingale/etc /opt/nightingale/logs /opt/nightingale/data && \
