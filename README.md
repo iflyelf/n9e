@@ -23,6 +23,50 @@
 
 ---
 
+## ⚙️ 前置要求（Fork 本仓库必读）
+
+如果你 Fork 了本仓库并希望使用自动同步功能，**必须先配置 `CI_TOKEN` Secret**，否则子模块同步工作流会失败。
+
+### 配置步骤
+
+#### 1️⃣ 生成 Personal Access Token (PAT)
+
+**Classic Token（推荐）**：
+1. GitHub 头像 → `Settings` → `Developer settings` → `Personal access tokens` → `Tokens (classic)`
+2. `Generate new token (classic)`
+3. 勾选权限：
+   - ✅ `repo`（包含 public_repo）
+   - ✅ `workflow`
+4. 复制生成的 token（只显示一次）
+
+**Fine-grained Token**：
+1. GitHub 头像 → `Settings` → `Developer settings` → `Personal access tokens` → `Fine-grained tokens`
+2. `Generate new token`
+3. Repository access：选择本仓库
+4. 设置权限：
+   - ✅ `Contents: Read and write`
+   - ✅ `Actions: Read and write`
+5. 复制生成的 token
+
+#### 2️⃣ 添加到仓库 Secrets
+
+1. 进入你的仓库 → `Settings` → `Secrets and variables` → `Actions`
+2. 点击 `New repository secret`
+3. Name: `CI_TOKEN`
+4. Value: 粘贴刚才复制的 token
+5. `Add secret`
+
+#### 3️⃣ 验证
+
+配置完成后，可以手动触发 `submodules-sync.yml` 工作流测试：
+- `Actions` → `子模块自动同步` → `Run workflow`
+
+> 💡 **为什么需要 CI_TOKEN？**
+> 1. `GITHUB_TOKEN` 权限不足以推送到受保护分支
+> 2. `GITHUB_TOKEN` 触发的 `repository_dispatch` 不会启动下游工作流（GitHub 防循环机制）
+
+---
+
 ## 🚀 快速开始
 
 ### 1. 拉取镜像
