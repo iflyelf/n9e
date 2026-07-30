@@ -60,8 +60,11 @@ jobs:
 
           cd upstream
           LATEST_COMMIT=$(git rev-parse HEAD)
-          # 优先取精确匹配的 tag, 保证与 submodules-sync 对齐的版本一致
-          LATEST_TAG=$(git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+          # 优先取精确匹配的正式版 tag（排除 beta/rc/alpha）
+          LATEST_TAG=$(git describe --tags --exact-match 2>/dev/null \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 \
+            || echo "unknown")
 
           echo "📌 上游锁定 commit: $LATEST_COMMIT"
           echo "🏷️  上游锁定 tag: $LATEST_TAG"
