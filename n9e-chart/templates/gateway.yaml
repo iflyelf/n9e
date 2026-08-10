@@ -1,0 +1,92 @@
+{{- /*
+  Gateway API 资源模板（Ingress 的现代化替代方案）
+  仅在中心端 (center) 模式且 gateway.enabled=true 时创建
+  需要集群已安装 Gateway API CRD 和支持的控制器
+*/ -}}
+{{- if and .Values.gateway.enabled (eq .Values.mode "center") }}
+{{- $gatewayName := default (include "common.names.fullname" .) .Values.gateway.name }}
+{{- if .Values.gateway.create }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $gatewayName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: nightingale
+    {{- if .Values.gateway.labels }}
+    {{- toYaml .Values.gateway.labels | nindent 4 }}
+    {{- end }}
+  {{- if .Values.gateway.annotations }}
+  annotations: {{- toYaml .Values.gateway.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  # GatewayClass 名称，由 Gateway API 控制器提供
+  gatewayClassName: {{ .Values.gateway.gatewayClassName }}
+  {{- if .Values.gateway.addresses }}
+  # 指定 Gateway 对外地址（Cilium 会据此为 LoadBalancer Service 请求指定 IP）
+  addresses: {{- toYaml .Values.gateway.addresses | nindent 4 }}
+  {{- end }}
+  {{- if or .Values.gateway.infrastructure.labels .Values.gateway.infrastructure.annotations }}
+  # 基础设施配置：标准 Gateway API 字段，会传递到底层由控制器生成的资源
+  # （Cilium 场景下会传递到自动生成的 LoadBalancer Service，
+  #   可配合 io.cilium/lb-ipam-ips 等注解选择 LB IP 池 / 影响调度）
+  infrastructure:
+    {{- if .Values.gateway.infrastructure.labels }}
+    labels: {{- toYaml .Values.gateway.infrastructure.labels | nindent 6 }}
+    {{- end }}
+    {{- if .Values.gateway.infrastructure.annotations }}
+    annotations: {{- toYaml .Values.gateway.infrastructure.annotations | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  # 监听器配置
+  listeners: {{- toYaml .Values.gateway.listeners | nindent 4 }}
+{{- end }}
+{{- if .Values.gateway.httpRoute.create }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ default (include "common.names.fullname" .) .Values.gateway.httpRoute.name }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: nightingale
+  {{- if .Values.gateway.httpRoute.annotations }}
+  annotations: {{- toYaml .Values.gateway.httpRoute.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  # 父 Gateway 引用
+  parentRefs:
+    {{- if .Values.gateway.httpRoute.parentRefs }}
+    {{- toYaml .Values.gateway.httpRoute.parentRefs | nindent 4 }}
+    {{- else }}
+    # 默认引用本 chart 创建的 Gateway
+    - name: {{ $gatewayName }}
+      namespace: {{ include "common.names.namespace" . }}
+    {{- end }}
+  {{- if .Values.gateway.httpRoute.hostnames }}
+  # 匹配的域名列表
+  hostnames:
+    {{- range .Values.gateway.httpRoute.hostnames }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  # 路由规则
+  rules:
+    {{- range .Values.gateway.httpRoute.rules }}
+    - {{- if .matches }}
+      matches: {{- toYaml .matches | nindent 8 }}
+      {{- end }}
+      {{- if .filters }}
+      filters: {{- toYaml .filters | nindent 8 }}
+      {{- end }}
+      # 后端服务：n9e 中心端 Service
+      backendRefs:
+        {{- if .backendRefs }}
+        {{- toYaml .backendRefs | nindent 8 }}
+        {{- else }}
+        - name: {{ include "common.names.fullname" $ }}
+          port: {{ $.Values.service.port }}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

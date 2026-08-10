@@ -1,0 +1,692 @@
+# ==============================================================================
+# Nightingale (夜莺) Helm Chart 配置文件
+# 支持中心端 (n9e) 和边缘告警引擎 (n9e-edge) 两种部署模式
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 全局配置
+# ------------------------------------------------------------------------------
+global:
+  # 镜像仓库配置
+  imageRegistry: ""
+  # 镜像拉取 Secrets
+  imagePullSecrets: []
+
+# ------------------------------------------------------------------------------
+# 部署模式配置
+# mode: "center" - 中心端 (n9e)，提供 Web UI + API + 告警引擎
+# mode: "edge"   - 边缘告警引擎 (n9e-edge)，仅运行告警引擎，连接到中心端
+# ------------------------------------------------------------------------------
+mode: "center"
+
+# ------------------------------------------------------------------------------
+# 时区配置
+# ------------------------------------------------------------------------------
+timezone: "Asia/Shanghai"
+
+# ------------------------------------------------------------------------------
+# 镜像配置
+# ------------------------------------------------------------------------------
+image:
+  # 镜像仓库
+  registry: docker.io
+  # 镜像名称
+  repository: iflyelf/nightingale
+  # 镜像标签，留空则使用 Chart.appVersion
+  tag: "latest-aggregation"
+  # 镜像拉取策略
+  pullPolicy: Always
+  # 镜像拉取 Secrets
+  pullSecrets: []
+
+# ------------------------------------------------------------------------------
+# 副本数配置（支持水平扩展）
+# ------------------------------------------------------------------------------
+replicaCount: 2
+
+# ------------------------------------------------------------------------------
+# 服务配置
+# ------------------------------------------------------------------------------
+service:
+  # 服务类型：ClusterIP, NodePort, LoadBalancer
+  type: ClusterIP
+  # ClusterIP 地址（留空自动分配）
+  clusterIP: ""
+  
+  # 中心端主服务端口（Web UI + API）
+  # 注意：config.toml 默认 HTTP.Port = 17000
+  port: 17000
+  targetPort: 17000
+  nodePort: ""
+  portName: http
+  
+  # Ibex RPC 端口（故障自愈功能）
+  ibexPort: 20090
+  ibexTargetPort: 20090
+  ibexNodePort: ""
+  ibexPortName: ibex-rpc
+  
+  # PushGateway 端口（可选，独立部署 n9e-pushgw 时使用）
+  # pushgwPort: 18000
+  # pushgwTargetPort: 18000
+  # pushgwNodePort: ""
+  # pushgwPortName: pushgw
+  
+  # 服务注解
+  annotations: {}
+  # 监听所有网络接口
+  listenOnAllInterfaces: true
+  # 会话亲和性
+  sessionAffinity: None
+  # 会话亲和性配置
+  sessionAffinityConfig: {}
+
+# ------------------------------------------------------------------------------
+# Gateway API 配置（Ingress 的现代化替代方案）
+# 需要集群已安装 Gateway API CRD (gateway.networking.k8s.io/v1) 和支持的控制器
+# 参考：https://gateway-api.sigs.k8s.io/
+# ------------------------------------------------------------------------------
+gateway:
+  # 是否启用 Gateway API（默认关闭；仅中心端 center 模式生效）
+  # 关闭时不创建任何 Gateway/HTTPRoute 资源，需对外暴露服务时再显式开启
+  enabled: false
+
+  # ----------------------------------------------------------------------------
+  # Gateway 资源配置（流量入口，通常由集群运维统一管理）
+  # 若集群已存在共享 Gateway，可设 create=false 并在 httpRoute.parentRefs 中引用
+  # ----------------------------------------------------------------------------
+  create: true
+  # GatewayClass 名称（由 Gateway API 控制器提供，如 cilium、nginx、istio、envoy-gateway）
+  gatewayClassName: "cilium"
+  # Gateway 名称（留空则使用 fullname）
+  name: ""
+  # Gateway 注解
+  annotations: {}
+  # Gateway 标签
+  labels: {}
+
+  # ----------------------------------------------------------------------------
+  # 指定 Gateway 对外地址（可选）
+  # Cilium 会据此为自动生成的 LoadBalancer Service 请求指定的 IP
+  # 需配合 Cilium LB-IPAM（CiliumLoadBalancerIPPool）使用
+  # ----------------------------------------------------------------------------
+  addresses: []
+    # - type: IPAddress
+    #   value: "192.168.1.100"
+
+  # ----------------------------------------------------------------------------
+  # 基础设施配置（标准 Gateway API spec.infrastructure 字段）
+  # 说明：Gateway API 标准只支持 labels/annotations，不支持 affinity。
+  #      真正处理流量的数据面 Pod 的调度亲和性由各控制器自行管理：
+  #      - Cilium：数据面是 cilium-envoy DaemonSet（每节点一个），
+  #        其调度在 Cilium 自身的 Helm values 中配置（envoy.affinity/nodeSelector），
+  #        不在本 chart 内。这里的 labels/annotations 会传递到生成的 LoadBalancer Service，
+  #        常用于选择 LB IP 池（如 io.cilium/lb-ipam-ips）。
+  # ----------------------------------------------------------------------------
+  infrastructure:
+    # 传递到底层资源的标签
+    labels: {}
+    # 传递到底层资源的注解（Cilium LoadBalancer Service 注解）
+    annotations: {}
+      # io.cilium/lb-ipam-ips: "192.168.1.100"
+
+  # 监听器配置
+  listeners:
+    # HTTP 监听器
+    - name: http
+      port: 80
+      protocol: HTTP
+      # 允许接入的路由所在命名空间：Same（同命名空间）/ All（所有）/ Selector
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # HTTPS 监听器（需配置 TLS 证书 Secret）
+    # - name: https
+    #   port: 443
+    #   protocol: HTTPS
+    #   tls:
+    #     mode: Terminate
+    #     certificateRefs:
+    #       - kind: Secret
+    #         name: n9e-tls
+    #   allowedRoutes:
+    #     namespaces:
+    #       from: Same
+
+  # ----------------------------------------------------------------------------
+  # HTTPRoute 资源配置（路由规则）
+  # ----------------------------------------------------------------------------
+  httpRoute:
+    # 是否创建 HTTPRoute
+    create: true
+    # HTTPRoute 名称（留空则使用 fullname）
+    name: ""
+    # HTTPRoute 注解
+    annotations: {}
+    # 父 Gateway 引用；create=true 时留空自动引用本 chart 创建的 Gateway，
+    # 若引用外部已有 Gateway，请显式配置
+    parentRefs: []
+      # - name: shared-gateway
+      #   namespace: gateway-system
+      #   sectionName: http
+    # 域名列表（留空表示匹配所有域名）
+    hostnames:
+      - n9e.example.com
+    # 路由规则
+    rules:
+      - matches:
+          - path:
+              type: PathPrefix
+              value: /
+
+# ------------------------------------------------------------------------------
+# 资源限制（按需调整）
+# ------------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 4
+    memory: 8Gi
+  limits:
+    cpu: 4
+    memory: 8Gi
+
+# ------------------------------------------------------------------------------
+# 安全上下文配置
+# n9e 是标准 Go HTTP 服务，无需特权容器
+# 说明：镜像默认以 root 运行且目录属主为 root，这里保持 root 以兼容镜像；
+#      但关闭 privileged 和 allowPrivilegeEscalation，并丢弃所有多余 capabilities，
+#      在不改镜像的前提下尽量收敛权限。若镜像已适配非 root，可改为 runAsNonRoot: true。
+# ------------------------------------------------------------------------------
+# Pod 级别安全上下文
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+  runAsNonRoot: false
+
+# 容器级别安全上下文
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  runAsUser: 0
+  capabilities:
+    drop:
+      - ALL
+    add: []
+
+# ------------------------------------------------------------------------------
+# 主机命名空间配置
+# ------------------------------------------------------------------------------
+# 使用宿主机的进程间通信名称空间（默认关闭，n9e 无需此权限）
+hostIPC: false
+# 使用宿主机的网络名称空间（默认关闭，避免端口冲突且不需要宿主机网络栈）
+hostNetwork: false
+# 使用宿主机的进程名称空间（默认关闭，n9e 无需访问宿主机进程）
+hostPID: false
+
+# ------------------------------------------------------------------------------
+# 亲和性与调度配置
+# ------------------------------------------------------------------------------
+affinity:
+  # 节点亲和性：要求调度到带有特定标签的节点
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: application/n9e
+              operator: In
+              values: ["nightingale"]
+  
+  # Pod 反亲和性：避免多个副本调度到同一节点
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values: ["n9e"]
+        topologyKey: kubernetes.io/hostname
+
+# 节点选择器
+nodeSelector: {}
+  # application/n9e: "nightingale"
+
+# 污点容忍
+tolerations:
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+  - key: node-role.kubernetes.io/master
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+
+# ------------------------------------------------------------------------------
+# 健康检查配置
+# ------------------------------------------------------------------------------
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /api/n9e/ping
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /api/n9e/ping
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+
+startupProbe:
+  enabled: true
+  httpGet:
+    path: /api/n9e/ping
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 30
+  successThreshold: 1
+
+# ------------------------------------------------------------------------------
+# 自动扩缩容 (HPA)
+# ------------------------------------------------------------------------------
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# ------------------------------------------------------------------------------
+# Pod 中断预算 (PDB)
+# ------------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# ------------------------------------------------------------------------------
+# 服务账号配置
+# ------------------------------------------------------------------------------
+serviceAccount:
+  # 是否创建 ServiceAccount
+  create: true
+  # ServiceAccount 名称（留空自动生成）
+  name: ""
+  # ServiceAccount 注解
+  annotations: {}
+
+# ------------------------------------------------------------------------------
+# Pod 注解和标签
+# ------------------------------------------------------------------------------
+podAnnotations: {}
+podLabels: {}
+
+# ------------------------------------------------------------------------------
+# 存储配置（日志和数据持久化）
+# ------------------------------------------------------------------------------
+persistence:
+  # 日志目录持久化
+  logs:
+    enabled: false
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    mountPath: /opt/nightingale/logs
+  
+  # 数据目录持久化（SQLite 模式下使用）
+  data:
+    enabled: false
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
+    mountPath: /opt/nightingale/data
+
+# ------------------------------------------------------------------------------
+# Nightingale 应用配置
+# ------------------------------------------------------------------------------
+config:
+  # 全局配置
+  global:
+    runMode: "release"
+  
+  # 日志配置
+  log:
+    # 日志输出方式：stdout, stderr, file
+    output: "stdout"
+    # 日志目录
+    dir: "logs"
+    # 日志级别：DEBUG, INFO, WARNING, ERROR
+    level: "INFO"
+  
+  # HTTP 服务配置
+  http:
+    # 监听地址
+    host: "0.0.0.0"
+    # 监听端口（中心端默认 17000，边缘端默认 19000）
+    port: 17000
+    # HTTPS 配置
+    certFile: ""
+    keyFile: ""
+    # 是否打印访问日志
+    printAccessLog: false
+    # 是否启用 pprof
+    pprof: true
+    # 是否暴露 Prometheus metrics
+    exposeMetrics: true
+    # 优雅关闭超时时间（秒）
+    shutdownTimeout: 30
+    
+    # API for Agent 配置
+    apiForAgent:
+      enable: true
+      # BasicAuth 配置（可选）
+      basicAuth: {}
+        # user001: "ccc26da7b9aba533cbb263a36c07dcc5"
+    
+    # API for Service 配置（边缘模式必须启用）
+    apiForService:
+      enable: false
+      # BasicAuth 配置
+      basicAuth:
+        user001: "ccc26da7b9aba533cbb263a36c07dcc5"
+    
+    # JWT 认证配置
+    jwtAuth:
+      # access token 过期时间（分钟）
+      accessExpired: 1500
+      # refresh token 过期时间（分钟）
+      refreshExpired: 10080
+      # Redis key 前缀
+      redisKeyPrefix: "/jwt/"
+    
+    # Token 认证配置
+    tokenAuth:
+      enable: true
+  
+  # 告警引擎配置
+  alert:
+    # 告警引擎延迟启动时间（秒），避免启动初期数据不全导致误判
+    engineDelay: 30
+    # 是否禁用告警引擎（仅边缘模式检查此配置）
+    disable: false
+    
+    # 心跳配置
+    heartbeat:
+      # 告警引擎 IP（留空自动探测）
+      ip: ""
+      # 心跳间隔（毫秒）
+      interval: 1000
+      # 告警引擎名称（中心端保持 default，边缘端可自定义如 edge1）
+      engineName: "default"
+    
+    # 告警通知配置
+    alerting:
+      # 通知发送并发数
+      notifyConcurrency: 10
+  
+  # Pushgw 配置
+  pushgw:
+    # 使用数据库中的标签覆盖上报数据的标签
+    labelRewrite: true
+    # 强制使用服务端时间戳
+    forceUseServerTS: true
+    # 业务组标签键名
+    busiGroupLabelKey: "busigroup"
+    
+    # 写入后端时序库配置
+    writers:
+      - url: "http://127.0.0.1:9090/api/v1/write"
+        basicAuthUser: ""
+        basicAuthPass: ""
+        headers:
+          - "X-From"
+          - "n9e"
+        timeout: 10000
+  
+  # Ibex 配置（故障自愈）
+  ibex:
+    enable: true
+    rpcListen: "0.0.0.0:20090"
+  
+  # 中心端特有配置（仅 mode=center 时生效）
+  center:
+    # 指标配置文件路径
+    metricsYamlFile: "./etc/metrics.yaml"
+    # 国际化 Header key
+    i18nHeaderKey: "X-Language"
+    # 匿名访问配置
+    anonymousAccess:
+      # 是否允许匿名查询数据源
+      promQuerier: true
+      # 是否允许匿名查看告警详情
+      alertDetail: true
+  
+  # 边缘模式特有配置（仅 mode=edge 时生效）
+  edge:
+    # 中心端 API 地址
+    centerApi:
+      addrs:
+        - "http://n9e-center.n9e.svc.cluster.local:17000"
+      # BasicAuth 认证（需与中心端 apiForService.basicAuth 一致）
+      basicAuthUser: "user001"
+      basicAuthPass: "ccc26da7b9aba533cbb263a36c07dcc5"
+      # 请求超时（毫秒）
+      timeout: 9000
+
+# ------------------------------------------------------------------------------
+# 外置数据库配置（MySQL 或 PostgreSQL）
+# 生产环境强烈建议使用外置数据库，不要使用 SQLite
+# ------------------------------------------------------------------------------
+externalDatabase:
+  # 数据库类型：mysql, postgres, sqlite
+  type: "mysql"
+  # 数据库连接信息
+  host: "mysql-cluster-mysql-primary.mysql.svc.cluster.local"
+  port: 3306
+  database: "n9e_v6"
+  username: "root"
+  password: "ysyh!9Sky"
+  # 完整的 DSN 连接串（可选，优先级高于上面的单独配置）
+  # MySQL 格式: "user:pass@tcp(host:port)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
+  # PostgreSQL 格式: "host=x port=x user=x dbname=x password=x sslmode=disable"
+  dsn: ""
+  # 连接池配置
+  maxLifetime: 7200
+  maxOpenConns: 150
+  maxIdleConns: 50
+  # 是否启用 SQL 调试日志
+  debug: false
+
+# ------------------------------------------------------------------------------
+# 外置 Redis 配置
+# 用于存储 JWT 认证信息和机器心跳 metadata
+# 生产环境强烈建议使用外置 Redis，不要使用 miniredis
+# ------------------------------------------------------------------------------
+externalRedis:
+  # Redis 部署模式：standalone, cluster, sentinel
+  # 当前使用 Redis Cluster 分片集群
+  type: "cluster"
+  # Redis 地址
+  # standalone:      "host:port"
+  # cluster/sentinel: "host1:port,host2:port,host3:port"（逗号分隔多个节点）
+  #
+  # Redis Cluster（推荐方式）：显式列出所有节点，go-redis 客户端会用任一可达节点做种子，
+  # 自动发现整个集群拓扑（CLUSTER SLOTS）。这比依赖 DNS 返回多个 A 记录更稳定。
+  # 当前配置对应 redis-cluster 项目部署的 6 节点集群
+  address: "redis-cluster-0.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-1.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-2.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-3.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-4.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-5.redis-cluster-headless.redis.svc.cluster.local:6379"
+  # Redis 认证
+  username: ""
+  password: "ysyh!9SKy"
+  # 数据库序号（cluster 模式固定为 0，不支持多 DB）
+  db: 0
+  # Sentinel 模式配置
+  masterName: ""
+  sentinelUsername: ""
+  sentinelPassword: ""
+  # 连接超时配置（毫秒）
+  dialTimeoutMills: 5000
+  readTimeoutMills: 3000
+  writeTimeoutMills: 3000
+  # TLS 配置
+  useTLS: false
+  tlsMinVersion: "1.2"
+
+# ------------------------------------------------------------------------------
+# 环境变量配置
+# ------------------------------------------------------------------------------
+extraEnvVars: []
+  # - name: TZ
+  #   value: "Asia/Shanghai"
+  # - name: LANG
+  #   value: "zh_CN.UTF-8"
+
+# 从 ConfigMap 加载环境变量
+extraEnvVarsCM: ""
+
+# 从 Secret 加载环境变量
+extraEnvVarsSecret: ""
+
+# ------------------------------------------------------------------------------
+# 额外的 ConfigMap 和 Volume 挂载
+# ------------------------------------------------------------------------------
+extraVolumes: []
+  # - name: custom-config
+  #   configMap:
+  #     name: n9e-custom-config
+
+extraVolumeMounts: []
+  # - name: custom-config
+  #   mountPath: /opt/nightingale/etc/custom
+  #   readOnly: true
+
+# ------------------------------------------------------------------------------
+# Init Containers（初始化容器）
+# ------------------------------------------------------------------------------
+initContainers: []
+  # - name: wait-for-db
+  #   image: busybox:latest
+  #   command: ['sh', '-c', 'until nc -z mysql-host 3306; do sleep 2; done']
+
+# ------------------------------------------------------------------------------
+# 额外的 Sidecar Containers
+# ------------------------------------------------------------------------------
+sidecars: []
+
+# ------------------------------------------------------------------------------
+# 更新策略
+# ------------------------------------------------------------------------------
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+
+# ------------------------------------------------------------------------------
+# Pod 安全策略
+# ------------------------------------------------------------------------------
+podSecurityPolicy:
+  enabled: false
+  name: ""
+
+# ------------------------------------------------------------------------------
+# 网络策略
+# ------------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+
+# ------------------------------------------------------------------------------
+# Prometheus ServiceMonitor（用于监控 n9e 自身）
+# ------------------------------------------------------------------------------
+metrics:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    annotations: {}
+
+# ------------------------------------------------------------------------------
+# 优先级类
+# ------------------------------------------------------------------------------
+priorityClassName: ""
+
+# ------------------------------------------------------------------------------
+# 命名空间配置
+# ------------------------------------------------------------------------------
+namespaceOverride: ""
+
+# ------------------------------------------------------------------------------
+# 完整的配置文件覆盖（高级用法）
+# 如果提供，将完全覆盖自动生成的 config.toml
+# ------------------------------------------------------------------------------
+configOverride: ""
+
+# 边缘模式配置文件覆盖
+edgeConfigOverride: ""
+
+# ==============================================================================
+# 额外资源部署（extraDeploy）
+# ==============================================================================
+# 通过 Helm 模板渲染额外的 Kubernetes 资源
+# 示例用途：部署 CephFS CSI Secret、静态 PV、ConfigMap 等
+# 默认为空，按需启用
+# ==============================================================================
+extraDeploy: []
+
+# 示例：部署 CephFS CSI Secret（用于静态 PV）
+# extraDeploy:
+#   - |
+#     apiVersion: v1
+#     kind: Secret
+#     metadata:
+#       name: csi-cephfs-secret
+#       namespace: {{ .Release.Namespace }}
+#     stringData:
+#       userID: admin
+#       userKey: AQCIfXlqHaabIBAA96h9RQ/iG+v7L5Pyi2p8PA==
+#       adminID: admin
+#       adminKey: AQCIfXlqHaabIBAA96h9RQ/iG+v7L5Pyi2p8PA==
+#
+#   - |
+#     apiVersion: v1
+#     kind: PersistentVolume
+#     metadata:
+#       name: pv-n9e-logs
+#     spec:
+#       accessModes:
+#         - ReadWriteOnce
+#       capacity:
+#         storage: 10Gi
+#       claimRef:
+#         apiVersion: v1
+#         kind: PersistentVolumeClaim
+#         name: n9e-logs
+#         namespace: {{ .Release.Namespace }}
+#       csi:
+#         driver: cephfs.csi.ceph.com
+#         nodeStageSecretRef:
+#           name: csi-cephfs-secret
+#           namespace: {{ .Release.Namespace }}
+#         volumeAttributes:
+#           fsName: "cephfs"
+#           clusterID: "060bc41a-948d-11f1-bac1-0da08ea37022"
+#           staticVolume: "true"
+#           rootPath: /k8s/prod/nightingale/n9e-logs
+#         volumeHandle: pv-n9e-logs
+#       persistentVolumeReclaimPolicy: Retain
+#       volumeMode: Filesystem
+#       storageClassName: ""

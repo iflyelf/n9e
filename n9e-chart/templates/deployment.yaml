@@ -1,0 +1,178 @@
+{{- /* 校验配置合法性 */ -}}
+{{- include "n9e.validateValues" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: nightingale
+    n9e.io/mode: {{ .Values.mode | quote }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  # 副本数（水平扩展）；启用 HPA 时由 HPA 管理
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  # 更新策略
+  strategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 6 }}
+      app.kubernetes.io/component: nightingale
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
+        app.kubernetes.io/component: nightingale
+        n9e.io/mode: {{ .Values.mode | quote }}
+      annotations:
+        # 配置变更时自动触发滚动更新
+        checksum/config: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.podAnnotations }}
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "n9e.imagePullSecrets" . | nindent 6 }}
+      # ServiceAccount
+      serviceAccountName: {{ include "n9e.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      {{- end }}
+      # 主机命名空间配置
+      hostIPC: {{ .Values.hostIPC }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      hostPID: {{ .Values.hostPID }}
+      {{- if .Values.hostNetwork }}
+      # 使用宿主机网络时需将 DNS 策略设为 ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- if .Values.securityContext }}
+      # Pod 级别安全上下文
+      securityContext: {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      # 亲和性配置
+      affinity: {{- toYaml .Values.affinity | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      # 节点选择器
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      # 污点容忍
+      tolerations: {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.initContainers }}
+      # 初始化容器
+      initContainers: {{- toYaml .Values.initContainers | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: n9e
+          image: {{ include "n9e.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.containerSecurityContext }}
+          # 容器级别安全上下文
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- end }}
+          # 启动命令：中心端 n9e / 边缘端 n9e-edge
+          args:
+            - {{ include "n9e.command" . }}
+          env:
+            # 时区
+            - name: TZ
+              value: {{ .Values.timezone | default "Asia/Shanghai" | quote }}
+            {{- if .Values.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.extraEnvVarsCM .Values.extraEnvVarsSecret }}
+          envFrom:
+            {{- if .Values.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ .Values.extraEnvVarsCM }}
+            {{- end }}
+            {{- if .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ .Values.extraEnvVarsSecret }}
+            {{- end }}
+          {{- end }}
+          ports:
+            # HTTP 主服务端口
+            - name: http
+              containerPort: {{ .Values.config.http.port }}
+              protocol: TCP
+            {{- if and (eq .Values.mode "center") .Values.config.ibex.enable }}
+            # Ibex RPC 端口
+            - name: ibex-rpc
+              containerPort: {{ .Values.service.ibexPort }}
+              protocol: TCP
+            {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          # 启动探针
+          startupProbe:
+            httpGet: {{- toYaml .Values.startupProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+            successThreshold: {{ .Values.startupProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          # 存活探针
+          livenessProbe:
+            httpGet: {{- toYaml .Values.livenessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          # 就绪探针
+          readinessProbe:
+            httpGet: {{- toYaml .Values.readinessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.resources }}
+          # 资源限制
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            # 挂载配置文件（以 subPath 方式挂载单个文件）
+            - name: config
+              mountPath: /opt/nightingale/etc/{{ include "n9e.configFileName" . }}
+              subPath: {{ include "n9e.configFileName" . }}
+              readOnly: true
+            {{- if .Values.persistence.logs.enabled }}
+            - name: logs
+              mountPath: {{ .Values.persistence.logs.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.data.enabled }}
+            - name: data
+              mountPath: {{ .Values.persistence.data.mountPath }}
+            {{- end }}
+            {{- if .Values.extraVolumeMounts }}
+            {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+        {{- if .Values.sidecars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        # 配置文件 Secret
+        - name: config
+          secret:
+            secretName: {{ include "n9e.secretName" . }}
+        {{- if .Values.persistence.logs.enabled }}
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ include "common.names.fullname" . }}-logs
+        {{- end }}
+        {{- if .Values.persistence.data.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "common.names.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.extraVolumes }}
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+        {{- end }}

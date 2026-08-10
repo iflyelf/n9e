@@ -1,0 +1,55 @@
+# ==============================================================================
+# Nightingale 边缘告警引擎 (n9e-edge) 部署示例配置
+# 用法: helm install n9e-edge ./n9e -f values-edge.yaml --namespace n9e
+# ==============================================================================
+
+# 部署模式设为边缘
+mode: "edge"
+
+# 边缘节点通常单副本或少量副本即可
+replicaCount: 1
+
+config:
+  http:
+    # 边缘端默认监听 19000
+    port: 19000
+  alert:
+    heartbeat:
+      # 边缘告警引擎名称，同名的引擎组成集群分片处理规则
+      engineName: "edge1"
+  ibex:
+    # 边缘节点默认不启用 Ibex
+    enable: false
+  edge:
+    centerApi:
+      # 指向中心端 n9e 的地址（请按实际中心端 Service 修改）
+      addrs:
+        - "http://n9e-center.n9e.svc.cluster.local:17000"
+      # 需与中心端 config.http.apiForService.basicAuth 配置一致
+      basicAuthUser: "user001"
+      basicAuthPass: "ccc26da7b9aba533cbb263a36c07dcc5"
+      timeout: 9000
+
+# 边缘节点 Redis 配置：复用中心端 Redis Cluster
+# 注意：Redis Cluster 不支持多 DB，db 只能为 0（无法用 db=1 做隔离）。
+# 中心端与边缘端共享同一集群，靠 n9e 内部 key 命名区分数据。
+externalRedis:
+  type: "cluster"
+  address: "redis-cluster-0.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-1.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-2.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-3.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-4.redis-cluster-headless.redis.svc.cluster.local:6379,redis-cluster-5.redis-cluster-headless.redis.svc.cluster.local:6379"
+  password: "ysyh!9SKy"
+  db: 0  # cluster 固定为 0
+
+# 探针端口跟随 19000
+livenessProbe:
+  httpGet:
+    port: http
+readinessProbe:
+  httpGet:
+    port: http
+startupProbe:
+  httpGet:
+    port: http
+
+service:
+  port: 19000
+  targetPort: 19000

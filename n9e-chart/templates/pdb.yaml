@@ -1,0 +1,21 @@
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicaCount) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: nightingale
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  # 最小可用副本数
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  # 最大不可用副本数
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 6 }}
+      app.kubernetes.io/component: nightingale
+{{- end }}

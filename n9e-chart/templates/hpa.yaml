@@ -1,0 +1,38 @@
+{{- if and .Values.autoscaling.enabled (not (eq .Values.mode "edge")) }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: nightingale
+spec:
+  # 扩缩容目标：本 Deployment
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "common.names.fullname" . }}
+  # 最小副本数
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  # 最大副本数
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    # 基于 CPU 使用率扩缩容
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    # 基于内存使用率扩缩容
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

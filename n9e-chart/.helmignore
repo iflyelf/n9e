@@ -1,0 +1,13 @@
+# Helm 打包时排除的文件和目录
+*.md
+.git/
+.gitignore
+.DS_Store
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+manifests/
+INSTALL.md
+README.md

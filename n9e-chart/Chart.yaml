@@ -1,0 +1,25 @@
+apiVersion: v2
+name: n9e
+description: Nightingale (夜莺) - 云原生监控告警平台，支持中心端和边缘告警引擎两种部署模式
+type: application
+version: 1.0.0
+appVersion: "v8.2.0"
+keywords:
+  - nightingale
+  - n9e
+  - monitoring
+  - alerting
+  - prometheus
+home: https://n9e.github.io/
+sources:
+  - https://github.com/ccfos/nightingale
+  - https://github.com/iflyelf/nightingale-docker
+maintainers:
+  - name: iflyelf
+    email: iflyelf@example.com
+dependencies:
+  - name: common
+    repository: file://./charts/common
+    version: 2.31.4
+    tags:
+      - bitnami-common

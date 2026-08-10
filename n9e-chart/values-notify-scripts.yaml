@@ -1,0 +1,91 @@
+# =============================================================================
+# Nightingale 告警通知脚本 - Helm values 覆盖片段
+# =============================================================================
+# 用途：将 5 个 Python 告警通知脚本（邮件/飞书/IM/加急/短信）挂载进 n9e 主容器，
+#       并在容器启动时通过 initContainer 安装 requests 依赖。
+#
+# 前置条件：
+#   1. n9e 主镜像已内置 python3（iflyelf/nightingale:latest-aggregation 已确认包含）
+#   2. 已创建 ConfigMap n9e-scripts    （kubectl apply -f manifests/n9e-scripts-configmap.yaml）
+#   3. 已创建 Secret    n9e-scripts-secret（kubectl apply -f manifests/n9e-scripts-secret.yaml）
+#
+# 使用方式（在 chart 目录内执行）：
+#   cd n9e-chart
+#   helm upgrade --install n9e-center . -n n9e \
+#     -f values.yaml \
+#     -f values-notify-scripts.yaml
+#
+# 优先级说明（脚本内配置）：
+#   payload.params（n9e 告警渠道下发） > 环境变量（本文件注入） > 脚本内默认值
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# initContainer：安装 Python 依赖（requests）到共享 Volume
+# -----------------------------------------------------------------------------
+initContainers:
+  - name: install-python-deps
+    image: python:3.11-alpine
+    imagePullPolicy: IfNotPresent
+    command:
+      - sh
+      - -c
+      - |
+        set -eux
+        pip install --no-cache-dir --target=/deps requests urllib3
+    volumeMounts:
+      - name: python-deps
+        mountPath: /deps
+
+# -----------------------------------------------------------------------------
+# 额外的 Volume：脚本（ConfigMap）、依赖（emptyDir）、日志/图片（emptyDir）
+# -----------------------------------------------------------------------------
+extraVolumes:
+  # 通知脚本（只读挂载）
+  - name: notify-scripts
+    configMap:
+      name: n9e-scripts
+      defaultMode: 0755
+  # Python 依赖包（由 initContainer 写入，主容器只读）
+  - name: python-deps
+    emptyDir: {}
+  # 脚本运行时日志和临时图片目录
+  # 生产环境建议改为 PVC（persistentVolumeClaim），避免 Pod 重启丢日志
+  - name: alert-logs
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: notify-scripts
+    mountPath: /opt/n9e-scripts
+    readOnly: true
+  - name: python-deps
+    mountPath: /deps
+    readOnly: true
+  - name: alert-logs
+    mountPath: /data/n9e/alerts
+
+# -----------------------------------------------------------------------------
+# 环境变量：PYTHONPATH 指向依赖目录 + 日志路径
+# -----------------------------------------------------------------------------
+extraEnvVars:
+  # 让 python3 能找到 initContainer 安装的 requests
+  - name: PYTHONPATH
+    value: "/deps"
+  # 统一日志/图片目录（对应 alert-logs 挂载点）
+  - name: LOG_DIR
+    value: "/data/n9e/alerts"
+  - name: IMG_DIR
+    value: "/data/n9e/alerts/images"
+
+# -----------------------------------------------------------------------------
+# 从 Secret 加载敏感环境变量（邮箱密码、Grafana token、飞书域名等）
+# -----------------------------------------------------------------------------
+extraEnvVarsSecret: "n9e-scripts-secret"
+
+# =============================================================================
+# 在 Nightingale 后台配置通知媒介时，脚本路径填写：
+#   /opt/n9e-scripts/send_nightingale_email.py
+#   /opt/n9e-scripts/send_nightingale_feishu.py
+#   /opt/n9e-scripts/send_nightingale_im.py
+#   /opt/n9e-scripts/send_nightingale_im_urgent.py
+#   /opt/n9e-scripts/send_nightingale_sms.py
+# =============================================================================
