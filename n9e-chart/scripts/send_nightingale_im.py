@@ -27,10 +27,10 @@ DEFAULT_DOMAIN_URL = os.getenv("DEFAULT_DOMAIN_URL", "http://n9e-center.iflytek.
 CALLBACK_SERVER_URL = os.getenv("CALLBACK_SERVER_URL", "http://n9e-gateway.n9e.svc.cluster.local:5000")
 
 # Grafana 图表渲染配置
-GRAFANA_BASE_URL = os.getenv("GRAFANA_BASE_URL", "http://ifly.iflytek.com/grafana")
-GRAFANA_TOKEN = os.getenv("GRAFANA_TOKEN", """")
+GRAFANA_BASE_URL = os.getenv("GRAFANA_BASE_URL", "http://grafana.grafana.svc.cluster.local:3000")
+GRAFANA_TOKEN = os.getenv("GRAFANA_TOKEN", "YOUR_GRAFANA_TOKEN")
 GRAFANA_DASHBOARD_UID = os.getenv("GRAFANA_DASHBOARD_UID", "adl6lsk")
-GRAFANA_DATASOURCE_UID = os.getenv("GRAFANA_DATASOURCE_UID", "cefdos8p4hc74c")
+GRAFANA_DATASOURCE_UID = os.getenv("GRAFANA_DATASOURCE_UID", "efuugikql4o3kf")
 GRAFANA_PANEL_ID = 1
 GRAFANA_RENDER_WIDTH = 1000
 GRAFANA_RENDER_HEIGHT = 500

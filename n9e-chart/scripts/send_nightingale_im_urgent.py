@@ -16,10 +16,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ============================================================================
 
 # Grafana 图表渲染配置
-GRAFANA_BASE_URL = os.getenv("GRAFANA_BASE_URL", "http://ifly.iflytek.com/grafana")
-GRAFANA_TOKEN = os.getenv("GRAFANA_TOKEN", """")
+GRAFANA_BASE_URL = os.getenv("GRAFANA_BASE_URL", "http://grafana.grafana.svc.cluster.local:3000")
+GRAFANA_TOKEN = os.getenv("GRAFANA_TOKEN", "YOUR_GRAFANA_TOKEN")
 GRAFANA_DASHBOARD_UID = os.getenv("GRAFANA_DASHBOARD_UID", "adl6lsk")
-GRAFANA_DATASOURCE_UID = os.getenv("GRAFANA_DATASOURCE_UID", "cefdos8p4hc74c")
+GRAFANA_DATASOURCE_UID = os.getenv("GRAFANA_DATASOURCE_UID", "efuugikql4o3kf")
 GRAFANA_PANEL_ID = 1
 GRAFANA_RENDER_WIDTH = 1000
 GRAFANA_RENDER_HEIGHT = 500
