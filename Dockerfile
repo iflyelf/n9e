@@ -35,7 +35,7 @@ ENV DEBIAN_FRONTEND=$DEBIAN_FRONTEND
 # GO 环境变量（builder 已预装 Go，此处仅配置代理与静态链接）
 ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=$GOPROXY
-ARG GOSUMDB=off
+ARG GOSUMDB=sum.golang.org
 ENV GOSUMDB=$GOSUMDB
 # 静态链接编译(禁用 CGO, 生成纯静态二进制, 支持交叉编译)
 ARG CGO_ENABLED=0
