@@ -340,11 +340,15 @@ def timeformat(ts: int) -> str:
 
 def build_mute_option_value(duration: str, group_id: int, group_name: str, rule_name: str,
                              instance: str, trigger_time: int, tags: List[str],
-                             is_aggregated: bool = False, instances: List[str] = None) -> str:
+                             is_aggregated: bool = False, instances: List[str] = None,
+                             app_id: str = "", app_secret: str = "") -> str:
     """构建屏蔽选项 value（向回调服务注册得到短 token）。
 
     避免飞书 select_static option value 长度限制导致 200340 错误，
     完整屏蔽参数先注册到回调服务，option value 只存短 token。
+
+    异步化后回调服务需要飞书凭证把屏蔽结果卡片推送给点击者，
+    因此把 app_id / app_secret 一并注册进去。
     """
     try:
         mute_data = {
@@ -355,7 +359,10 @@ def build_mute_option_value(duration: str, group_id: int, group_name: str, rule_
             'instance': instance,
             'trigger_time': trigger_time,
             'tags': tags,
-            'is_aggregated': is_aggregated
+            'is_aggregated': is_aggregated,
+            # 飞书凭证（用于异步推送屏蔽结果卡片）
+            '_feishu_app_id': app_id,
+            '_feishu_app_secret': app_secret
         }
         if is_aggregated and instances:
             mute_data['instances'] = instances
@@ -841,7 +848,8 @@ def send_cards(app_id: str, app_secret: str, sendtos: List[str],
                     for label, duration in durations:
                         option_value = build_mute_option_value(
                             duration, group_id, group_name, rule_name_for_mute,
-                            instance, trigger_time, tags_list, is_aggregated, instances
+                            instance, trigger_time, tags_list, is_aggregated, instances,
+                            app_id, app_secret
                         )
                         if option_value:
                             mute_options.append({
