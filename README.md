@@ -72,7 +72,11 @@
 ### 1. 拉取镜像
 
 ```bash
+# Docker Hub（国外）
 docker pull iflyelf/nightingale:latest-aggregation
+
+# 华为云 SWR（国内推荐）
+docker pull swr.cn-east-3.myhuaweicloud.com/iflyelf/nightingale:latest-aggregation
 ```
 
 ### 2. 启动容器
@@ -164,9 +168,18 @@ nightingale-docker/
 ├── docker-entrypoint.sh               # 容器启动脚本
 ├── .github/workflows/
 │   ├── submodules-sync.yml            # 子模块 tag 对齐同步
-│   └── docker-publish.yml             # 自动构建工作流
+│   └── docker-publish.yml             # 自动构建工作流（Docker Hub + 华为云 SWR）
 └── README.md
 ```
+
+### 多阶段构建
+
+Dockerfile 采用**多阶段构建**，构建更快、运行镜像更小：
+
+| 阶段 | 基础镜像 | 作用 |
+| --- | --- | --- |
+| builder | `iflyelf/ubuntu:latest` | 已预装 Go / Node / Python / 完整工具链，应用事件聚合补丁并编译 `n9e` / `n9e-edge` / `n9e-pushgw` 静态二进制 |
+| runtime | `iflyelf/ubuntu:lite` | 仅拷贝编译产物 + 最小运行依赖（`bash` / `netcat-openbsd` / `curl` / `ca-certificates` / `tzdata` / `locales`） |
 
 ### 本地构建
 

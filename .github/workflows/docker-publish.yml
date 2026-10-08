@@ -7,6 +7,13 @@
 
 name: 构建并推送 Nightingale 镜像
 
+# 镜像推送目标（华为云 SWR: 国内可访问, 替代 docker.io）
+# 组织名称可直接修改, 凭据通过 Secrets: SWR_USERNAME / SWR_PASSWORD
+env:
+  SWR_REGISTRY: swr.cn-east-3.myhuaweicloud.com
+  SWR_ORGANIZATION: iflyelf
+  IMAGE_NAME: nightingale
+
 on:
   push:
     paths:
@@ -27,6 +34,12 @@ on:
     - cron: '0 2 * * 1'
   watch:
     types: [started]
+
+# 同一分支仅保留最新一次构建：快速连续提交时自动取消旧构建，
+# 避免多个多架构（QEMU）构建并发堆积、互相拖慢导致镜像迟迟不更新。
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   actions: write
@@ -98,6 +111,10 @@ jobs:
           TAGS="$TAGS,${{ secrets.DOCKER_USERNAME }}/nightingale:${{ matrix.tag }}"
           TAGS="$TAGS,${{ secrets.DOCKER_USERNAME }}/nightingale:${VERSION}-aggregation"
           TAGS="$TAGS,${{ secrets.DOCKER_USERNAME }}/nightingale:latest-aggregation"
+          # 华为云 SWR 同标签推送
+          TAGS="$TAGS,${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/nightingale:${{ matrix.tag }}"
+          TAGS="$TAGS,${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/nightingale:${VERSION}-aggregation"
+          TAGS="$TAGS,${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/nightingale:latest-aggregation"
           
           echo "tags=${TAGS#,}" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -118,13 +135,26 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: 🔐 登录华为云 SWR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SWR_REGISTRY }}
+          username: ${{ secrets.SWR_USERNAME }}
+          password: ${{ secrets.SWR_PASSWORD }}
+
       - name: 🚀 构建并推送镜像
         uses: docker/build-push-action@v6
+        # 华为云 SWR 不支持 OCI media types 与证明清单(attestation)，
+        # 否则报 "Invalid image, fail to parse 'manifest.json'"。
+        # 关闭 provenance/sbom 并输出 Docker 媒体类型以兼容 SWR。
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
+          outputs: type=image,oci-mediatypes=false
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             UPSTREAM_TAG=${{ env.UPSTREAM_TAG }}
@@ -136,6 +166,43 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.upstream=${{ env.UPSTREAM_COMMIT }}
+
+      # 华为云 SWR 镜像仓库默认私有，push 后调用 SWR API 设为公开
+      # 需 Secrets: SWR_AK / SWR_SK（华为云账号 AK/SK，具备 swr:repo:updateRepo 权限）
+      - name: 🔓 设置 SWR 镜像为公开
+        env:
+          CLOUD_SDK_AK: ${{ secrets.SWR_AK }}
+          CLOUD_SDK_SK: ${{ secrets.SWR_SK }}
+          SWR_REGION: cn-east-3
+          SWR_ORGANIZATION: ${{ env.SWR_ORGANIZATION }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        run: |
+          if [ -z "$CLOUD_SDK_AK" ] || [ -z "$CLOUD_SDK_SK" ]; then
+            echo "未配置 SWR_AK / SWR_SK，跳过设置公开"
+            exit 0
+          fi
+          pip install --quiet huaweicloudsdkcore huaweicloudsdkswr
+          python - <<'PY'
+          import os
+          from huaweicloudsdkcore.auth.credentials import BasicCredentials
+          from huaweicloudsdkswr.v2.region.swr_region import SwrRegion
+          from huaweicloudsdkswr.v2 import SwrClient
+          from huaweicloudsdkswr.v2.model import UpdateRepoRequest, UpdateRepoRequestBody
+
+          client = SwrClient.new_builder() \
+              .with_credentials(BasicCredentials(os.environ["CLOUD_SDK_AK"], os.environ["CLOUD_SDK_SK"])) \
+              .with_region(SwrRegion.value_of(os.environ["SWR_REGION"])) \
+              .build()
+
+          namespace = os.environ["SWR_ORGANIZATION"]
+          for repository in [os.environ["IMAGE_NAME"]]:
+              req = UpdateRepoRequest()
+              req.namespace = namespace
+              req.repository = repository
+              req.body = UpdateRepoRequestBody(is_public=True)
+              client.update_repo(req)
+              print(f"✅ 已设为公开: {namespace}/{repository}")
+          PY
 
       - name: 📊 生成构建报告
         if: always()
