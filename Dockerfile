@@ -41,6 +41,12 @@ ENV GOSUMDB=$GOSUMDB
 ARG CGO_ENABLED=0
 ENV CGO_ENABLED=$CGO_ENABLED
 
+# 固定 Go 工具链版本: iflyelf/ubuntu:latest 预装的 Go 可能较新(如 1.27),
+# 会导致 x/net(http2) 与 grpc 的 API 不兼容(undefined: http2.TrailerPrefix),
+# 这里通过 GOTOOLCHAIN 固定为 go1.26.4, 与历史构建环境保持一致。
+ARG GO_TOOLCHAIN=go1.26.4
+ENV GOTOOLCHAIN=$GO_TOOLCHAIN
+
 # ***** 复制源码并应用事件聚合补丁 *****
 COPY upstream /build/nightingale
 COPY apply-aggregation-patch.py /build/
