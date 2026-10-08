@@ -178,6 +178,8 @@ jobs:
       # 华为云 SWR 镜像仓库默认私有，push 后调用 SWR API 设为公开
       # 需 Secrets: SWR_AK / SWR_SK（华为云账号 AK/SK，具备 swr:repo:updateRepo 权限）
       - name: 🔓 设置 SWR 镜像为公开
+        # 可选增强步骤：不因 SWR 公开设置失败而使整条流水线失败
+        continue-on-error: true
         env:
           CLOUD_SDK_AK: ${{ secrets.SWR_AK }}
           CLOUD_SDK_SK: ${{ secrets.SWR_SK }}
